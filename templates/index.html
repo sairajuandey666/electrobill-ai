@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electricity Bill Predictor — AI/ML</title>
+    <meta name="description" content="Predict your electricity bill using AI/ML. Enter household data or upload an Excel file to get instant predictions.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Animated background particles -->
+    <div class="bg-particles" id="particles"></div>
+
+    <!-- Header -->
+    <header class="header" id="main-header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+                <div>
+                    <h1>ElectroBill AI</h1>
+                    <p class="tagline">ML-Powered Electricity Bill Prediction</p>
+                </div>
+            </div>
+            <div class="model-badge" id="model-badge">
+                <span class="badge-dot"></span>
+                <span>Model Active — R² {{ "%.2f"|format(metrics.r2) }}</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Model Stats Cards -->
+        <section class="stats-row" id="stats-section">
+            <div class="stat-card" id="stat-r2">
+                <div class="stat-icon">📊</div>
+                <div class="stat-value">{{ "%.4f"|format(metrics.r2) }}</div>
+                <div class="stat-label">R² Score</div>
+                <div class="stat-desc">Model Accuracy</div>
+            </div>
+            <div class="stat-card" id="stat-rmse">
+                <div class="stat-icon">📐</div>
+                <div class="stat-value">{{ "%.2f"|format(metrics.rmse) }}</div>
+                <div class="stat-label">RMSE</div>
+                <div class="stat-desc">Avg. Error</div>
+            </div>
+            <div class="stat-card" id="stat-mse">
+                <div class="stat-icon">🎯</div>
+                <div class="stat-value">{{ "%.2f"|format(metrics.mse) }}</div>
+                <div class="stat-label">MSE</div>
+                <div class="stat-desc">Mean Sq. Error</div>
+            </div>
+            <div class="stat-card" id="stat-features">
+                <div class="stat-icon">🔢</div>
+                <div class="stat-value">{{ features|length }}</div>
+                <div class="stat-label">Features</div>
+                <div class="stat-desc">Input Variables</div>
+            </div>
+        </section>
+
+        <!-- Tab Navigation -->
+        <div class="tab-nav" id="tab-navigation">
+            <button class="tab-btn active" data-tab="single" id="tab-single">
+                <span class="tab-icon">✏️</span> Single Prediction
+            </button>
+            <button class="tab-btn" data-tab="batch" id="tab-batch">
+                <span class="tab-icon">📁</span> Excel Upload (Batch)
+            </button>
+            <button class="tab-btn" data-tab="charts" id="tab-charts">
+                <span class="tab-icon">📈</span> Charts & Analytics
+            </button>
+        </div>
+
+        <!-- Single Prediction Tab -->
+        <section class="tab-content active" id="panel-single">
+            <div class="card prediction-card">
+                <div class="card-header">
+                    <h2>🏠 Enter Household Details</h2>
+                    <p>Fill in the values below — just like your Excel sheet columns</p>
+                </div>
+                <form id="predict-form" class="input-grid">
+                    {% for feat in features %}
+                    <div class="input-group" id="group-{{ feat }}">
+                        <label for="input-{{ feat }}">
+                            {{ feat.replace('_', ' ').title() }}
+                            {% if feat.startswith('is_') %}
+                            <span class="hint">(0 = No, 1 = Yes)</span>
+                            {% endif %}
+                        </label>
+                        <input
+                            type="number"
+                            id="input-{{ feat }}"
+                            name="{{ feat }}"
+                            step="any"
+                            placeholder="e.g. {{ '%.1f'|format(feature_stats[feat].mean) }}"
+                            required
+                        >
+                        <div class="input-range">
+                            Range: {{ '%.1f'|format(feature_stats[feat].min) }} – {{ '%.1f'|format(feature_stats[feat].max) }}
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary" id="btn-predict">
+                            <span class="btn-icon">⚡</span>
+                            Predict Bill
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="btn-sample">
+                            <span class="btn-icon">🎲</span>
+                            Fill Sample
+                        </button>
+                        <button type="reset" class="btn btn-ghost" id="btn-reset">
+                            <span class="btn-icon">🗑️</span>
+                            Clear
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Single Result -->
+                <div class="result-panel hidden" id="single-result">
+                    <div class="result-header">
+                        <div class="result-icon">💡</div>
+                        <h3>Predicted Electricity Bill</h3>
+                    </div>
+                    <div class="result-value" id="result-value">₹ 0.00</div>
+                    <div class="result-details" id="result-details"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Batch Prediction Tab -->
+        <section class="tab-content" id="panel-batch">
+            <div class="card batch-card">
+                <div class="card-header">
+                    <h2>📊 Upload Excel File</h2>
+                    <p>Upload an Excel sheet with columns matching the feature names and get predictions for all rows at once.</p>
+                </div>
+
+                <div class="required-cols">
+                    <h4>Required Columns:</h4>
+                    <div class="col-tags">
+                        {% for feat in features %}
+                        <span class="col-tag">{{ feat }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="upload-zone" id="upload-zone">
+                    <div class="upload-icon">📂</div>
+                    <p class="upload-text">Drag & drop your Excel file here</p>
+                    <p class="upload-hint">or click to browse</p>
+                    <input type="file" id="file-input" accept=".xlsx,.xls" hidden>
+                </div>
+                <div class="file-info hidden" id="file-info">
+                    <span class="file-name" id="file-name"></span>
+                    <button class="btn btn-ghost btn-sm" id="btn-remove-file">✕ Remove</button>
+                </div>
+                <button class="btn btn-primary btn-wide hidden" id="btn-upload-predict">
+                    <span class="btn-icon">🚀</span>
+                    Predict All Rows
+                </button>
+
+                <!-- Batch Results Table -->
+                <div class="batch-results hidden" id="batch-results">
+                    <div class="batch-header">
+                        <h3>📋 Prediction Results</h3>
+                        <span class="batch-count" id="batch-count"></span>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="results-table">
+                            <thead id="results-thead"></thead>
+                            <tbody id="results-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts & Analytics Tab -->
+        <section class="tab-content" id="panel-charts">
+            <!-- Chart loading state -->
+            <div class="charts-loading" id="charts-loading">
+                <div class="spinner"></div>
+                <p>Loading charts...</p>
+            </div>
+
+            <div class="charts-grid hidden" id="charts-grid">
+                <!-- Row 1: Actual vs Predicted + Error Distribution -->
+                <div class="chart-card" id="chart-card-avp">
+                    <div class="chart-title">
+                        <span class="chart-icon">🎯</span>
+                        <h3>Actual vs Predicted</h3>
+                    </div>
+                    <p class="chart-desc">Points close to the diagonal line indicate accurate predictions</p>
+                    <div class="chart-container">
+                        <canvas id="chart-actual-vs-predicted"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card" id="chart-card-error">
+                    <div class="chart-title">
+                        <span class="chart-icon">📊</span>
+                        <h3>Error Distribution</h3>
+                    </div>
+                    <p class="chart-desc">Prediction errors should be centered around zero (bell-shaped)</p>
+                    <div class="chart-container">
+                        <canvas id="chart-error-dist"></canvas>
+                    </div>
+                </div>
+
+                <!-- Row 2: Feature Importance + Residuals -->
+                <div class="chart-card" id="chart-card-importance">
+                    <div class="chart-title">
+                        <span class="chart-icon">⚡</span>
+                        <h3>Feature Importance</h3>
+                    </div>
+                    <p class="chart-desc">How much each feature influences the predicted bill</p>
+                    <div class="chart-container">
+                        <canvas id="chart-feature-importance"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card" id="chart-card-residuals">
+                    <div class="chart-title">
+                        <span class="chart-icon">🔬</span>
+                        <h3>Residuals vs Predicted</h3>
+                    </div>
+                    <p class="chart-desc">Random scatter around zero means the model fits well</p>
+                    <div class="chart-container">
+                        <canvas id="chart-residuals"></canvas>
+                    </div>
+                </div>
+
+                <!-- Row 3: Correlation Heatmap + Target Distribution -->
+                <div class="chart-card" id="chart-card-correlation">
+                    <div class="chart-title">
+                        <span class="chart-icon">🔗</span>
+                        <h3>Feature Correlation</h3>
+                    </div>
+                    <p class="chart-desc">How features relate to the target — darker colors mean stronger correlation</p>
+                    <div class="chart-container chart-container-lg">
+                        <canvas id="chart-correlation"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card" id="chart-card-target">
+                    <div class="chart-title">
+                        <span class="chart-icon">💰</span>
+                        <h3>Bill Amount Distribution</h3>
+                    </div>
+                    <p class="chart-desc">How electricity bills are distributed across the dataset</p>
+                    <div class="chart-container">
+                        <canvas id="chart-target-dist"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Download Sample Template -->
+        <section class="download-section" id="download-section">
+            <div class="card card-sm">
+                <h3>📥 Need a template?</h3>
+                <p>Download a sample Excel file with the correct column format</p>
+                <button class="btn btn-secondary" id="btn-download-template">
+                    <span class="btn-icon">📄</span>
+                    Download Template
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer" id="main-footer">
+        <p>Built with ❤️ by <strong>SAI RAJU ANDEY</strong> — AI/ML Electricity Prediction Project</p>
+        <p class="footer-sub">Linear Regression Model • scikit-learn • Flask • 2026</p>
+    </footer>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay hidden" id="loading-overlay">
+        <div class="spinner"></div>
+        <p>Predicting...</p>
+    </div>
+
+    <script src="/static/script.js"></script>
+
+    <!-- Pass feature stats to JS -->
+    <script>
+        window.FEATURE_STATS = {{ feature_stats | tojson }};
+        window.FEATURES = {{ features | tojson }};
+    </script>
+</body>
+</html>
